@@ -1,0 +1,354 @@
+module sys_ctrl (
+    clk, rst, alu_out, out_valid, alu_fun, en, clk_en, address, wr_en, rd_en, wr_data,
+    rd_data, rd_data_valid, rx_p_data, rx_d_valid, tx_p_data, tx_d_valid, clk_div_en
+);
+
+input clk;
+input rst;                       // active-low reset
+input [15:0] alu_out;           // 16-bit ALU output for multiplication
+input out_valid;
+output reg [3:0] alu_fun;
+output reg en;
+output reg clk_en;
+output reg [3:0] address;
+output reg wr_en;
+output reg rd_en;
+output reg [7:0] wr_data;
+input [7:0] rd_data;
+ input rd_data_valid;
+input [7:0] rx_p_data;
+input rx_d_valid;
+output reg [7:0] tx_p_data;
+output reg tx_d_valid;
+output reg clk_div_en;
+
+reg [3:0] cs, ns;
+reg [3:0] addr_stored_reg;      // Store address for RF write
+//reg [3:0] addr_rd_stored_reg;   // Store address for RF read
+reg [15:0] alu_result_reg;      // Store complete 16-bit ALU result
+reg alu_result_ready;           // Flag when ALU result is ready
+
+// command opcodes
+localparam RF_wr_cmd        = 8'hAA;
+localparam RF_rd_cmd        = 8'hBB;
+localparam ALU_oper_w_op_cmd   = 8'hCC;
+localparam ALU_oper_w_nop_cmd  = 8'hDD;
+
+// FSM states
+parameter idle                 = 4'b0000,
+          RF_wr_addr_state     = 4'b0001,
+          RF_wr_data_state     = 4'b0010,
+          RF_rd_addr_state     = 4'b0011,
+          RF_rd_data_state     = 4'b0100,   // <<-- added state
+          opA_state            = 4'b0101,
+          opB_state            = 4'b0110,
+          alu_func_state       = 4'b0111,
+          alu_result_low_state = 4'b1000,
+          alu_result_high_state= 4'b1001;
+
+// state register
+always @(posedge clk or negedge rst) begin
+    if (!rst)
+        cs <= idle;
+    else
+        cs <= ns;
+end
+
+// next state logic
+always @(*) begin
+    ns = cs;
+    case (cs)
+        idle : begin
+            if (rx_d_valid) begin
+                if (rx_p_data == RF_wr_cmd)        ns = RF_wr_addr_state;
+                else if (rx_p_data == RF_rd_cmd)   ns = RF_rd_addr_state;
+                else if (rx_p_data == ALU_oper_w_op_cmd)   ns = opA_state;
+                else if (rx_p_data == ALU_oper_w_nop_cmd)  ns = alu_func_state;
+            end
+        end
+
+        RF_wr_addr_state : begin
+            if (rx_d_valid) 
+                ns = RF_wr_data_state;
+        end
+
+        RF_wr_data_state : begin
+            if (rx_d_valid) 
+                ns = idle;
+        end
+
+        RF_rd_addr_state : begin
+              if (rx_d_valid)
+            ns = RF_rd_data_state;  // go wait for data
+        end
+
+        RF_rd_data_state : begin
+            if (rd_data_valid)
+                ns = idle;
+        end
+
+        opA_state : begin
+            if (rx_d_valid)
+                ns = opB_state;
+        end
+
+        opB_state : begin
+            if (rx_d_valid)
+                ns = alu_func_state;
+        end
+
+        alu_func_state : begin
+            if (rx_d_valid) 
+                ns = alu_result_low_state;
+        end
+
+        alu_result_low_state : begin
+            if (out_valid)  
+                ns = alu_result_high_state;
+        end
+
+        alu_result_high_state : begin
+             
+                ns = idle;
+        end
+
+        default : ns = idle;
+    endcase
+end
+
+// Store complete ALU result when valid
+
+
+
+// output logic
+always @(*) begin
+    // default assignments\
+    /*
+    en         = 1'b0;
+    clk_en     = 1'b0;
+    wr_en      = 1'b0;
+    rd_en      = 1'b0;
+    wr_data    = 8'b0;
+    address    = 4'b0;
+    alu_fun    = 4'b0;
+    tx_p_data  = 8'b0;
+    tx_d_valid = 1'b0;
+    clk_div_en = 1'b1; // always on
+*/
+    case (cs) 
+        idle: begin
+            en = 1'b0;
+            clk_en = 1'b0;
+            address = 4'b0;
+            wr_en = 1'b0;
+            rd_en = 1'b0;
+            wr_data = 8'b0;
+            tx_p_data = 8'b0;
+            tx_d_valid = 1'b0;
+            clk_div_en = 1'b1;
+            alu_fun = 4'b0;
+        end
+
+        RF_wr_addr_state : begin
+                
+         en = 1'b0; // alu enable
+        clk_en = 1'b0; 
+        address = rx_p_data;
+        wr_en = 1'b0;
+        rd_en = 1'b0;
+        wr_data = 8'b0;
+        tx_p_data = 8'b0;
+        tx_d_valid = 1'b0;
+        clk_div_en = 1'b1;
+        alu_fun = 4'b0;
+        end
+
+        RF_wr_data_state : begin
+        en = 1'b0; // alu enable
+        clk_en = 1'b1; 
+        address = addr_stored_reg;
+        wr_en = 1'b1;
+        rd_en = 1'b0;
+        wr_data = rx_p_data;
+        tx_p_data = 8'b0;
+        tx_d_valid = 1'b0;
+        clk_div_en = 1'b1;
+        alu_fun = 4'b0;
+        end
+
+        RF_rd_addr_state : begin
+             en = 1'b0; // alu enable
+            clk_en   = 1'b1;
+             wr_en = 1'b0;
+            rd_en    = 1'b1;
+            wr_data = 0;
+            address  = rx_p_data[3:0];  // Only 4-bit address
+             alu_fun = 4'b0;
+            // Send read data immediately when valid
+            clk_div_en = 1'b1;
+            tx_p_data  = 0;
+            tx_d_valid = 0;
+        end
+
+
+        RF_rd_data_state : begin
+            if (rd_data_valid ) begin
+                clk_en     = 1'b1;
+                rd_en      = 1'b0;
+                tx_p_data  = rd_data;
+                tx_d_valid = 1'b1;
+                wr_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = addr_stored_reg[3:0];
+                alu_fun    = 4'b0;
+                en         = 1'b0;
+                clk_div_en = 1'b1;
+            end
+            else begin
+                clk_en     = 1'b1;
+                rd_en      = 1'b0;
+                tx_p_data  = 8'b0;
+                tx_d_valid = 1'b0;
+                wr_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = 4'b0;
+                alu_fun    = 4'b0;
+                en         = 1'b0;
+                clk_div_en = 1'b1;
+            end
+            
+
+        end
+
+        opA_state : begin
+            clk_en   = 1'b1;
+            wr_en    = 1'b1;
+            rd_en    = 1'b0;
+            wr_data  = rx_p_data;
+            address  = 4'h0; // REG0 for operand A
+            alu_fun  = 4'b0;
+            en       = 1'b0;
+            clk_div_en = 1'b1;
+            tx_p_data  = 8'b0;
+            tx_d_valid = 1'b0;
+
+        end
+
+        opB_state : begin
+            clk_en   = 1'b1;
+            wr_en    = 1'b1;
+            wr_data  = rx_p_data;
+            address  = 4'h1; // REG1 for operand B
+            alu_fun  = 4'b0;
+            en       = 1'b0;
+            clk_div_en = 1'b1;
+            tx_p_data  = 8'b0;
+            tx_d_valid = 1'b0;
+            rd_en    = 1'b0;
+        end
+
+        alu_func_state : begin
+            clk_en   = 1'b1;
+            en       = 1'b1;
+            alu_fun  = rx_p_data[3:0];
+            wr_en    = 1'b0;
+            rd_en    = 1'b0;
+            wr_data  = 8'b0;
+            address  = 4'b0;
+            clk_div_en = 1'b1;
+            tx_p_data  = 8'b0;
+            tx_d_valid = 1'b0;
+           // clk_div_en = 1'b1;
+        end
+
+        alu_result_low_state : begin
+            /*
+            tx_p_data  = alu_result_reg[7:0];
+            tx_d_valid = alu_result_ready;
+            */
+            if (out_valid) begin
+                tx_p_data  = alu_out[7:0];
+                tx_d_valid = 1'b1;
+                clk_en     = 1'b1;
+                en         = 1'b1;
+                wr_en      = 1'b0;
+                rd_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = 4'b0;
+                alu_fun    = rx_p_data[3:0];
+                clk_div_en = 1'b1;
+            end 
+            else begin
+                tx_p_data  = 1'b0;
+                tx_d_valid = 1'b0;
+                clk_en     = 1'b1;
+                en         = 1'b1;
+                wr_en      = 1'b0;
+                rd_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = 4'b0;
+                alu_fun    = rx_p_data[3:0];
+                clk_div_en = 1'b1;
+
+            end
+
+
+
+            end
+        
+
+        alu_result_high_state : begin
+             if (out_valid) begin
+                tx_p_data  = alu_out[15:8];
+                tx_d_valid = 1'b1;
+                clk_en     = 1'b1;
+                en         = 1'b1;
+                wr_en      = 1'b0;
+                rd_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = 4'b0;
+                alu_fun    = 4'b0;
+                clk_div_en = 1'b1;
+            end 
+            else begin
+                tx_p_data  = 1'b0;
+                tx_d_valid = 1'b0;
+                clk_en     = 1'b1;
+                en         = 1'b0;
+                wr_en      = 1'b0;
+                rd_en      = 1'b0;
+                wr_data    = 8'b0;
+                address    = 4'b0;
+                alu_fun    = 4'b0;
+                clk_div_en = 1'b1;
+
+            end
+        end
+        default: begin
+            en         = 1'b0;
+            clk_en     = 1'b0;
+            wr_en      = 1'b0;
+            rd_en      = 1'b0;
+            wr_data    = 8'b0;
+            address    = 4'b0;
+            alu_fun    = 4'b0;
+            tx_p_data  = 8'b0;
+            tx_d_valid = 1'b0;
+            clk_div_en = 1'b1; // always on
+        end
+    endcase
+end
+
+// Store address for RF write
+always @(posedge clk or negedge rst) begin
+    if (!rst)
+        addr_stored_reg <= 4'b0;
+    else if (cs == RF_wr_addr_state && rx_d_valid)
+        addr_stored_reg <= rx_p_data[3:0];
+end
+
+
+endmodule
+
+
+
