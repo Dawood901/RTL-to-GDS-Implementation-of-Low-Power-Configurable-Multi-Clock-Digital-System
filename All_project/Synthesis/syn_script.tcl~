@@ -1,0 +1,171 @@
+
+set flattened 0
+
+########################### Define Top Module ############################
+                                                   
+set top_module SYS_TOP
+
+##################### Define Working Library Directory ######################
+                                                   
+define_design_lib work -path ./work
+
+#####formality setup files####
+
+set_svf system.svf
+
+################## Design Compiler Library Files #setup ######################
+
+puts "###########################################"
+puts "#      #setting Design Libraries           #"
+puts "###########################################"
+
+#Add the path of the libraries to the search_path variable
+lappend search_path /home/IC/Labs/SYSTEM/std_cells
+lappend search_path /home/IC/Labs/SYSTEM/rtl
+
+set SSLIB "scmetro_tsmc_cl013g_rvt_ss_1p08v_125c.db"
+set TTLIB "scmetro_tsmc_cl013g_rvt_tt_1p2v_25c.db"
+set FFLIB "scmetro_tsmc_cl013g_rvt_ff_1p32v_m40c.db"
+
+## Standard Cell libraries 
+set target_library [list $SSLIB $TTLIB $FFLIB]
+
+## Standard Cell & Hard Macros libraries 
+set link_library [list * $SSLIB $TTLIB $FFLIB]  
+
+######################## Reading RTL Files #################################
+
+puts "###########################################"
+puts "#             Reading RTL Files           #"
+puts "###########################################"
+
+set file_format verilog
+
+analyze -format $file_format ALU.v
+analyze -format $file_format BIT_SYNC_solution.v
+analyze -format $file_format CLK_GATE.v
+analyze -format $file_format ClkDiv.v
+analyze -format $file_format CLKDIV_MUX.v
+analyze -format $file_format data_sampling_rx.v
+analyze -format $file_format DATA_SYNC.v
+analyze -format $file_format deserializer_rx.v
+analyze -format $file_format edge_bit_counter.v
+
+analyze -format $file_format parity_calc.v
+analyze -format $file_format parity_check_rx.v
+analyze -format $file_format PULSE_GEN.v
+
+analyze -format $file_format RegFile.v
+analyze -format $file_format RST_SYNC.v
+analyze -format $file_format serializer.v
+analyze -format $file_format stop_check_rx.v
+analyze -format $file_format strt_check_rx.v
+analyze -format $file_format sys_ctrl.v
+analyze -format $file_format SYS_TOP.v
+analyze -format $file_format UART.v
+analyze -format $file_format uart_fsm.v
+analyze -format $file_format uart_mux.v
+analyze -format $file_format uart_rx_fsm.v
+analyze -format $file_format uart_rx_top.v
+analyze -format $file_format uart_top.v
+analyze -format $file_format Async_fifo.v
+analyze -format $file_format fifo_mem.v
+analyze -format $file_format fifo_rd.v
+analyze -format $file_format fifo_wr.v
+
+elaborate -lib WORK SYS_TOP
+
+###################### Defining toplevel ###################################
+
+current_design $top_module
+
+#################### Liniking All The Design Parts #########################
+puts "###############################################"
+puts "######## Liniking All The Design Parts ########"
+puts "###############################################"
+
+link 
+
+#################### Liniking All The Design Parts #########################
+puts "###############################################"
+puts "######## checking design consistency ##########"
+puts "###############################################"
+
+check_design
+
+#################### Define Design Constraints #########################
+puts "###############################################"
+puts "############ Design Constraints #### ##########"
+puts "###############################################"
+
+source -echo ./cons.tcl
+
+###################### Mapping and optimization ########################
+puts "###############################################"
+puts "########## Mapping & Optimization #############"
+puts "###############################################"
+
+if {$flattened == 0} {
+compile 
+} else {
+compile -ungroup_all 
+}
+
+##### closee formality setup files####
+
+set_svf -off
+
+#############################################################################
+# Write out Design after initial compile
+#############################################################################
+
+#Avoid Writing assign statements in the netlist
+change_name -hier -rule verilog
+
+if {$flattened == 0} {
+write_file -format verilog -hierarchy -output System_mapped_hierarchy.v
+} else {
+write_file -format verilog -hierarchy -output System_mapped_flattened.v
+}
+
+
+####################### reporting ##########################################
+
+if {$flattened == 0} {
+report_area -hierarchy > area_hierarchy.rpt
+} else {
+report_area -hierarchy > area_flattened.rpt
+}
+
+###################### Mapping and optimization ########################
+puts "###############################################"
+puts "########## Mapping & Optimization #############"
+puts "###############################################"
+
+compile -map_effort high 
+
+#############################################################################
+# Write out Design after initial compile
+#############################################################################
+
+write_file -format verilog -hierarchy -output System_Top.v
+write_file -format ddc -hierarchy -output System_Top.ddc
+write_sdc  -nosplit System_Top.sdc
+write_sdf           System_Top.sdf
+
+################# reporting #######################
+
+report_area -hierarchy > area.rpt
+report_power -hierarchy > power.rpt
+report_timing -max_paths 100 -delay_type min > hold.rpt
+report_timing -max_paths 100 -delay_type max > setup.rpt
+report_clock -attributes > clocks.rpt
+report_constraint -all_violators > constraints.rpt
+
+
+
+################# starting graphical user interface #######################
+
+#gui_start
+
+#exit
